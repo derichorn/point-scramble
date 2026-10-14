@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Point Scramble</title>
+<meta name="description" content="Draw random workouts until you pass 100 points.">
+<meta name="theme-color" content="#EAF3F5">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230B2531'/%3E%3Cpath d='M12 22h10l22 22h8M12 42h10l6-6M36 28l8-8h8' fill='none' stroke='%23EAF3F5' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400..700&display=swap">
+<style>
+/* Layout: a scoreboard strip (total, progress, Scramble button) above a dealt row of activity cards, then the full activity menu. */
+:root {
+  --bg: #EAF3F5;
+  --surface: #FFFFFF;
+  --ink: #0B2531;
+  --muted: #506B76;
+  --line: #CBDDE2;
+  --track: #D4E6EA;
+  --teal: #0E7A89;
+  --accent: #D93B17;
+  --on-accent: #FFFFFF;
+  --pill-bg: #0A1F29;
+  --pill-fg: #FFFFFF;
+  --font-display: 'Bricolage Grotesque', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #071820; --surface: #0D2530; --ink: #E7F4F6; --muted: #92AEB8; --line: #1C3B47;
+    --track: #173340; --teal: #5CC8D6; --accent: #FF6A45; --on-accent: #1B0904;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #071820; --surface: #0D2530; --ink: #E7F4F6; --muted: #92AEB8; --line: #1C3B47;
+  --track: #173340; --teal: #5CC8D6; --accent: #FF6A45; --on-accent: #1B0904;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-inline: clamp(16px, 4vw, 32px);
+  padding-block: 24px 56px;
+}
+.wrap { max-width: 1040px; margin-inline: auto; display: flex; flex-direction: column; gap: 28px; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { text-wrap: balance; }
+
+/* top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 12px; font-family: var(--font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
+.mark { width: 38px; height: 38px; border-radius: 11px; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
+.mark svg { width: 22px; height: 22px; }
+.sub { color: var(--muted); max-width: 34ch; }
+
+/* scoreboard */
+.board {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: clamp(20px, 3.5vw, 32px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px 32px;
+  align-items: end;
+}
+.kicker { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.total-row { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.big { font-family: var(--font-display); font-weight: 800; font-size: clamp(68px, 15vw, 128px); line-height: 0.9; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.unit { font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 4vw, 32px); color: var(--muted); }
+.caption { color: var(--muted); margin-top: 8px; }
+.meter-wrap { margin-top: 18px; max-width: 520px; }
+.meter { height: 10px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.meter > i { display: block; height: 100%; width: 0; background: var(--teal); border-radius: 999px; transition: width 0.45s cubic-bezier(.2,.8,.2,1); }
+.meter-label { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.go {
+  appearance: none; border: 0; cursor: pointer;
+  background: var(--accent); color: var(--on-accent);
+  font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: -0.01em;
+  padding: 20px 34px; border-radius: 16px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.go svg { width: 26px; height: 26px; }
+.go:hover { transform: translateY(-2px); filter: brightness(1.06); }
+.go:active { transform: translateY(0) scale(0.98); }
+.go.spin svg { animation: spin 0.5s ease; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.go:focus-visible, .done-btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+/* section heads */
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.head h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.01em; }
+.head p { color: var(--muted); font-size: 14px; }
+
+/* cards */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 16px; margin-top: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; transition: opacity 0.2s ease, transform 0.2s ease; }
+.grid.leaving .card { opacity: 0; transform: translateY(-8px) scale(0.98); }
+.grid.dealing .card { animation: deal 0.55s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i) * 80ms); }
+@keyframes deal { from { opacity: 0; transform: translateY(22px) rotate(-1.5deg) scale(0.97); } to { opacity: 1; transform: none; } }
+.art { position: relative; aspect-ratio: 16 / 10; max-width: 100%; background: var(--p-bg); transition: opacity 0.25s ease, filter 0.25s ease; }
+.art svg { display: block; width: 100%; height: 100%; }
+.art .fg { fill: none; stroke: var(--p-fig); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+.art .thin { stroke-width: 3; }
+.art .fgf { fill: var(--p-fig); }
+.art .bg { fill: var(--p-bg); }
+.art .wt { fill: var(--p-water); }
+.art .pop { fill: var(--p-pop); }
+.art .ghost { opacity: 0.3; }
+.pts { position: absolute; top: 12px; left: 12px; background: var(--pill-bg); color: var(--pill-fg); font-family: var(--font-display); font-weight: 800; font-size: 20px; padding: 4px 12px 5px; border-radius: 999px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.tick { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 50%; background: var(--teal); color: var(--surface); display: grid; place-items: center; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
+.tick svg { width: 18px; height: 18px; }
+.info { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 14px 16px 16px; }
+.titles { min-width: 0; }
+.tag { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.card h3 { font-family: var(--font-display); font-weight: 700; font-size: 22px; line-height: 1.15; letter-spacing: -0.015em; margin-top: 2px; }
+.done-btn { appearance: none; cursor: pointer; flex: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: transparent; border: 1.5px solid var(--line); padding: 8px 14px; border-radius: 999px; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
+.done-btn:hover { border-color: var(--teal); }
+.card.is-done .done-btn { background: var(--teal); border-color: var(--teal); color: var(--surface); }
+.card.is-done .art { opacity: 0.6; filter: saturate(0.6); }
+.card.is-done .tick { transform: scale(1); }
+.card.is-done h3 { text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: var(--muted); }
+
+/* menu */
+.menu { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+.menu li { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); min-width: 0; }
+.menu .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line); flex: none; transition: background 0.2s ease, border-color 0.2s ease; }
+.menu .nm { flex: 1; min-width: 0; font-weight: 500; }
+.menu .cat { color: var(--muted); font-size: 13px; }
+.menu .pp { font-family: var(--font-display); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2ch; text-align: right; }
+.menu li.on .dot { background: var(--accent); border-color: var(--accent); }
+.menu li.on .nm { font-weight: 700; }
+.note { color: var(--muted); font-size: 14px; }
+
+/* add activity */
+.chip { appearance: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: transparent; border: 1.5px solid var(--line); padding: 8px 16px; min-height: 40px; border-radius: 999px; transition: border-color 0.15s ease, filter 0.15s ease; }
+.chip:hover { border-color: var(--teal); }
+.chip.primary { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.chip.primary:hover { filter: brightness(1.15); }
+.chip:focus-visible, .field input:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+#menuNote { margin-top: 4px; }
+.status { margin-top: 10px; color: var(--muted); font-size: 14px; }
+.status:empty { display: none; }
+.add-panel { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto; gap: 12px; align-items: end; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-top: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field label { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.field input { font: inherit; color: var(--ink); background: var(--bg); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; min-width: 0; }
+.err { grid-column: 1 / -1; color: var(--accent); font-size: 14px; }
+.err:empty { display: none; }
+.menu .nm { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .add-panel { grid-template-columns: minmax(0, 1fr) auto; }
+  .add-panel .field:first-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .go { width: 100%; }
+  .menu { grid-template-columns: minmax(0, 1fr); }
+  .menu .cat { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>
+      </span>
+      Point Scramble
+    </div>
+    <p class="sub">Draw random workouts until you pass 100 points.</p>
+  </header>
+
+  <section class="board" aria-label="Scoreboard">
+    <div>
+      <p class="kicker">Today's draw</p>
+      <div class="total-row"><span class="big" id="total">0</span><span class="unit">pts</span></div>
+      <p class="caption" id="caption" aria-live="polite"></p>
+      <div class="meter-wrap">
+        <div class="meter" id="meter" role="progressbar" aria-label="Points earned" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
+        <div class="meter-label"><span id="earned">0 pts earned</span><span id="left"></span></div>
+      </div>
+    </div>
+    <button type="button" class="go" id="go">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4M18 4l3 3-3 3M18 14l3 3-3 3"/></svg>
+      Scramble
+    </button>
+  </section>
+
+  <section aria-labelledby="draw-h">
+    <div class="head">
+      <h2 id="draw-h">Your draw</h2>
+      <p>Tap Mark done when you finish one.</p>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section aria-labelledby="menu-h">
+    <div class="head">
+      <h2 id="menu-h">All activities</h2>
+      <button type="button" class="chip primary" id="addBtn" aria-expanded="false" aria-controls="addPanel">+ Add activity</button>
+    </div>
+    <p class="note" id="menuNote">Each activity is drawn once, so a scramble never repeats. Activities you add are saved on this device.</p>
+    <form class="add-panel" id="addPanel" hidden novalidate>
+      <div class="field"><label for="newName">Activity</label><input id="newName" type="text" maxlength="40" autocomplete="off" placeholder="Dance class"></div>
+      <div class="field"><label for="newPts">Points</label><input id="newPts" type="number" inputmode="numeric" min="1" max="500" step="5" value="10"></div>
+      <button type="submit" class="chip primary">Add</button>
+      <p class="err" id="addErr" role="alert"></p>
+    </form>
+    <p class="status" id="status" aria-live="polite"></p>
+    <ul class="menu" id="menu"></ul>
+  </section>
+</div>
+
+<script src="config.js"></script>
+<script src="storage.js"></script>
+<script>
+// <logic>
+function drawScramble(list, goal, rnd) {
+  var pool = list.slice();
+  for (var i = pool.length - 1; i > 0; i--) {
+    var j = Math.floor(rnd() * (i + 1));
+    var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+  }
+  var picks = [], total = 0;
+  for (var k = 0; k < pool.length; k++) {
+    picks.push(pool[k]);
+    total += pool[k].pts;
+    if (total >= goal) break;
+  }
+  return { picks: picks, total: total };
+}
+var CUSTOM_PALETTES = [
+  { bg: '#14304D', water: '#14304D', fig: '#FFFFFF', pop: '#FF7A45' },
+  { bg: '#0E7A89', water: '#0E7A89', fig: '#FFFFFF', pop: '#FFE066' },
+  { bg: '#2D6A4F', water: '#2D6A4F', fig: '#FFFFFF', pop: '#FFD166' },
+  { bg: '#B23A48', water: '#B23A48', fig: '#FFFFFF', pop: '#FFE3B3' },
+  { bg: '#33415C', water: '#33415C', fig: '#FFFFFF', pop: '#5DE0E6' }
+];
+function clampPts(n) {
+  n = Math.round(Number(n));
+  if (!isFinite(n)) return 1;
+  return Math.max(1, Math.min(500, n));
+}
+function makeId() { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function newItem(name, pts, idx, id) {
+  var p = CUSTOM_PALETTES[idx % CUSTOM_PALETTES.length];
+  return { id: id, name: String(name).trim().slice(0, 40), pts: clampPts(pts), tag: 'Custom', c: { bg: p.bg, water: p.water, fig: p.fig, pop: p.pop } };
+}
+// </logic>
+
+(function () {
+  var GOAL = 100;
+  var CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function wrap(label, inner) {
+    return '<svg viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="' + label + '"><rect class="bg" width="320" height="200"/>' + inner + '</svg>';
+  }
+  function swim(n, label) {
+    var buoys = '';
+    for (var i = 0; i < n; i++) buoys += '<circle class="pop" cx="' + (34 + i * 24) + '" cy="124" r="6"/>';
+    return wrap(label,
+      '<circle class="pop" cx="262" cy="46" r="18" opacity=".9"/>' + buoys +
+      '<path class="fg" d="M126 130 Q165 114 205 124"/>' +
+      '<circle class="pop" cx="216" cy="121" r="10"/>' +
+      '<path class="fg" d="M198 124 Q226 76 262 108"/>' +
+      '<circle class="fgf" cx="112" cy="120" r="3"/><circle class="fgf" cx="102" cy="112" r="2.5"/><circle class="fgf" cx="96" cy="124" r="2"/><circle class="fgf" cx="270" cy="112" r="2.5"/>' +
+      '<path class="wt" d="M0 130 Q40 122 80 130 T160 130 T240 130 T320 130 V200 H0Z"/>' +
+      '<path class="fg thin" opacity=".35" d="M0 156 Q40 148 80 156 T160 156 T240 156 T320 156"/>' +
+      '<path class="fg thin" opacity=".2" d="M0 180 Q40 172 80 180 T160 180 T240 180 T320 180"/>');
+  }
+  var ART = {
+    swim4k: function () { return swim(4, 'Open water swimmer passing four buoys'); },
+    swim2k: function () { return swim(2, 'Open water swimmer passing two buoys'); },
+    swim1k: function () { return swim(1, 'Open water swimmer passing one buoy'); },
+    beach: function () {
+      return wrap('Palm tree on a beach at sunset',
+        '<circle cx="238" cy="62" r="26" fill="#FFE08A"/>' +
+        '<path class="wt" d="M0 122 Q40 114 80 122 T160 122 T240 122 T320 122 V160 H0Z"/>' +
+        '<path d="M0 146 Q60 136 120 146 T240 144 T320 146 V200 H0Z" fill="#F3D69C"/>' +
+        '<path d="M0 148 Q60 138 120 148 T240 146 T320 148" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/>' +
+        '<path d="M70 184 Q82 134 100 94" fill="none" stroke="#6B4226" stroke-width="7" stroke-linecap="round"/>' +
+        '<g fill="none" stroke="#2E8B57" stroke-width="7" stroke-linecap="round"><path d="M100 94 Q74 66 44 84"/><path d="M100 94 Q96 60 128 52"/><path d="M100 94 Q128 70 152 88"/><path d="M100 94 Q82 88 62 106"/></g>' +
+        '<circle cx="98" cy="99" r="4" fill="#6B4226"/><circle cx="106" cy="100" r="4" fill="#6B4226"/>' +
+        '<path d="M190 178 q8 -6 16 0 M212 190 q8 -6 16 0" fill="none" stroke="#B88A4A" stroke-width="3" stroke-linecap="round" opacity=".7"/>');
+    },
+    pushups: function () {
+      return wrap('Person doing a push up',
+        '<path class="fg thin" d="M24 166 H296"/>' +
+        '<g class="ghost"><path class="fg" d="M56 156 L216 146"/><path class="fg" d="M216 148 L238 164"/><circle class="fgf" cx="238" cy="136" r="10"/></g>' +
+        '<path class="fg" d="M56 154 L216 122"/><path class="fg" d="M216 124 L224 162"/><circle class="pop" cx="236" cy="108" r="10"/>' +
+        '<path class="fg thin" d="M258 84 v-18 M258 66 l-6 7 M258 66 l6 7"/>');
+    },
+    jacks: function () {
+      return wrap('Person doing a jumping jack',
+        '<path class="fg thin" d="M70 172 H250"/>' +
+        '<g class="ghost"><path class="fg" d="M160 76 L142 118"/><path class="fg" d="M160 76 L178 118"/><path class="fg" d="M160 118 L152 166"/><path class="fg" d="M160 118 L168 166"/></g>' +
+        '<circle class="pop" cx="160" cy="50" r="11"/><path class="fg" d="M160 66 L160 118"/>' +
+        '<path class="fg" d="M160 78 L112 40"/><path class="fg" d="M160 78 L208 40"/>' +
+        '<path class="fg" d="M160 118 L122 166"/><path class="fg" d="M160 118 L198 166"/>' +
+        '<path class="fg thin" d="M96 26 l-6 -8 M112 22 v-10 M224 26 l6 -8 M208 22 v-10"/>');
+    },
+    situps: function () {
+      return wrap('Person doing a situp',
+        '<path class="fg thin" d="M30 164 H300"/>' +
+        '<g class="ghost"><path class="fg" d="M150 156 L236 152"/><circle class="fgf" cx="252" cy="150" r="10"/></g>' +
+        '<path class="fg" d="M150 156 L112 112 L82 156"/><path class="fg" d="M150 156 L196 96"/>' +
+        '<circle class="pop" cx="208" cy="80" r="11"/><path class="fg" d="M194 102 L134 110"/>' +
+        '<path class="fg thin" d="M236 118 q14 -22 6 -44 m0 0 l-9 3 m9 -3 l3 9"/>');
+    },
+    stretch: function () {
+      return wrap('Person doing a side stretch with a clock',
+        '<circle cx="48" cy="48" r="20" fill="none" class="fg thin"/><path class="fg thin" d="M48 36 V48 L57 54"/>' +
+        '<path class="fg thin" d="M70 172 H250"/>' +
+        '<path class="fg" d="M150 122 L134 170"/><path class="fg" d="M150 122 L168 170"/>' +
+        '<path class="fg" d="M150 122 Q148 88 172 66"/><circle class="pop" cx="182" cy="52" r="10"/>' +
+        '<path class="fg" d="M170 72 Q196 28 242 42"/><path class="fg" d="M160 88 Q132 100 148 120"/>');
+    },
+    run: function () {
+      return wrap('Person running',
+        '<path class="fg thin" d="M20 176 H300" stroke-dasharray="14 12"/>' +
+        '<path class="fg thin" d="M32 70 H78 M20 92 H64 M40 114 H80" opacity=".5"/>' +
+        '<circle class="pop" cx="176" cy="54" r="11"/>' +
+        '<path class="fg" d="M140 118 L164 72"/>' +
+        '<path class="fg" d="M140 118 L180 126 L186 164"/><path class="fg" d="M140 118 L112 144 L74 134"/>' +
+        '<path class="fg" d="M162 78 L190 94 L204 76"/><path class="fg" d="M162 78 L132 88 L112 106"/>');
+    },
+    water: function () {
+      return wrap('Bottle of water',
+        '<ellipse cx="160" cy="180" rx="52" ry="8" fill="#1E6FA8" opacity=".18"/>' +
+        '<rect x="146" y="22" width="28" height="16" rx="4" fill="#1E6FA8"/>' +
+        '<rect x="140" y="38" width="40" height="14" rx="4" fill="#fff" fill-opacity=".6" stroke="#1E6FA8" stroke-width="5"/>' +
+        '<rect x="124" y="50" width="72" height="126" rx="22" fill="#fff" fill-opacity=".55" stroke="#1E6FA8" stroke-width="5"/>' +
+        '<path d="M127 100 Q143 93 160 100 T193 100 V154 Q193 173 174 173 H146 Q127 173 127 154 Z" fill="#4DB6E8"/>' +
+        '<rect x="124" y="118" width="72" height="22" fill="#1E6FA8" opacity=".9"/>' +
+        '<path d="M140 62 v26" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".8"/>' +
+        '<path d="M236 70 q8 12 0 20 q-8 -8 0 -20 M258 104 q6 9 0 15 q-6 -6 0 -15 M84 84 q6 9 0 15 q-6 -6 0 -15" fill="#1E6FA8"/>');
+    },
+    burpees: function () {
+      return wrap('Person doing a burpee, in a plank with a jump shown behind',
+        '<path class="fg thin" d="M24 168 H296"/>' +
+        '<path class="fg" d="M58 152 L196 128"/><path class="fg" d="M196 130 L204 166"/><circle class="pop" cx="216" cy="114" r="10"/>' +
+        '<g class="ghost"><circle class="fgf" cx="268" cy="50" r="11"/><path class="fg" d="M268 66 L268 112"/><path class="fg" d="M268 78 L246 44"/><path class="fg" d="M268 78 L290 44"/><path class="fg" d="M268 112 L252 148"/><path class="fg" d="M268 112 L284 148"/></g>');
+    },
+    walk: function () {
+      return wrap('Person walking past two trees',
+        '<circle class="pop" cx="250" cy="48" r="20" opacity=".9"/>' +
+        '<path class="fg thin" d="M20 176 H300" stroke-dasharray="14 12"/>' +
+        '<path class="fg thin" d="M60 176 V132"/><circle class="fgf" cx="60" cy="116" r="18" opacity=".35"/>' +
+        '<path class="fg thin" d="M270 176 V138"/><circle class="fgf" cx="270" cy="124" r="14" opacity=".35"/>' +
+        '<circle class="pop" cx="160" cy="54" r="11"/><path class="fg" d="M158 68 L156 118"/>' +
+        '<path class="fg" d="M156 118 L184 170"/><path class="fg" d="M156 118 L130 170"/>' +
+        '<path class="fg" d="M158 82 L180 106"/><path class="fg" d="M158 82 L138 106"/>');
+    },
+    pushups20: function () {
+      var dots = '';
+      for (var r = 0; r < 2; r++) {
+        for (var c = 0; c < 10; c++) dots += '<circle class="fgf" cx="' + (30 + c * 11) + '" cy="' + (30 + r * 12) + '" r="3"/>';
+      }
+      return wrap('Person doing push ups with a tally of twenty dots',
+        dots +
+        '<path class="fg thin" d="M24 166 H296"/>' +
+        '<g class="ghost"><path class="fg" d="M56 156 L216 146"/><path class="fg" d="M216 148 L238 164"/><circle class="fgf" cx="238" cy="136" r="10"/></g>' +
+        '<path class="fg" d="M56 154 L216 122"/><path class="fg" d="M216 124 L224 162"/><circle class="pop" cx="236" cy="108" r="10"/>');
+    },
+    fun: function () {
+      var cols = ['#FFE066', '#5DE0E6', '#FFFFFF', '#FFE066', '#5DE0E6', '#FFFFFF', '#FFE066'];
+      var xs = [40, 80, 120, 160, 200, 240, 280];
+      var ys = [40, 45, 42, 32, 21, 17, 19];
+      var bulbs = xs.map(function (x, i) { return '<circle cx="' + x + '" cy="' + ys[i] + '" r="5" fill="' + cols[i] + '"/>'; }).join('');
+      return wrap('Person dancing under string lights',
+        '<path class="fg thin" d="M0 22 Q80 54 160 26 T320 22"/>' + bulbs +
+        '<circle class="pop" cx="160" cy="76" r="11"/><path class="fg" d="M160 92 L160 138"/>' +
+        '<path class="fg" d="M160 104 L128 70"/><path class="fg" d="M160 104 L196 66"/>' +
+        '<path class="fg" d="M160 138 L140 178"/><path class="fg" d="M160 138 L188 166 L204 178"/>' +
+        '<circle class="fgf" cx="252" cy="130" r="6"/><path class="fg thin" d="M258 130 V104 l12 4"/>' +
+        '<circle class="fgf" cx="70" cy="118" r="6"/><path class="fg thin" d="M76 118 V92 l12 4"/>' +
+        '<g fill="#FFE066"><circle cx="100" cy="150" r="3"/><circle cx="224" cy="96" r="3"/><circle cx="286" cy="164" r="3"/></g>' +
+        '<g fill="#5DE0E6"><circle cx="48" cy="170" r="3"/><circle cx="262" cy="70" r="3"/></g>');
+    },
+    custom: function () {
+      return wrap('Activity badge with a lightning bolt',
+        '<circle class="pop" cx="160" cy="100" r="64"/>' +
+        '<path class="bg" d="M176 46 L132 110 H160 L144 156 L192 90 H162 Z"/>' +
+        '<path class="fg thin" d="M62 56 v18 M53 65 h18 M262 132 v18 M253 141 h18 M258 44 v12 M252 50 h12 M64 142 v12 M58 148 h12"/>');
+    }
+  };
+
+  var DEFAULTS = [
+    { id: 'swim4k', name: 'Swim 4K', pts: 100, tag: 'Open water', c: { bg: '#0F4C5C', water: '#0A3340', fig: '#F2FBFB', pop: '#FF7A45' } },
+    { id: 'swim2k', name: 'Swim 2K', pts: 50, tag: 'Open water', c: { bg: '#1B7F8E', water: '#135F6C', fig: '#F2FBFB', pop: '#FF8A55' } },
+    { id: 'swim1k', name: 'Swim 1K', pts: 25, tag: 'Open water', c: { bg: '#8AD6DA', water: '#52B6BF', fig: '#0B2531', pop: '#E8431F' } },
+    { id: 'beach', name: 'Swim At The Beach', pts: 25, tag: 'Beach', c: { bg: '#FFB26B', water: '#35B0C2', fig: '#5A3320', pop: '#E8431F' } },
+    { id: 'pushups', name: '10 Push ups', pts: 5, tag: 'Strength', c: { bg: '#F26A4B', water: '#F26A4B', fig: '#FFFFFF', pop: '#FFE2B8' } },
+    { id: 'jacks', name: '10 Jumping jacks', pts: 5, tag: 'Cardio', c: { bg: '#F7C948', water: '#F7C948', fig: '#12303D', pop: '#E8431F' } },
+    { id: 'situps', name: '10 Situps', pts: 5, tag: 'Strength', c: { bg: '#5DBB8A', water: '#5DBB8A', fig: '#0F2F26', pop: '#FFF1C2' } },
+    { id: 'stretch', name: '5 Minute Stretch', pts: 5, tag: 'Mobility', c: { bg: '#A9DCCB', water: '#A9DCCB', fig: '#0D3B3B', pop: '#E8431F' } },
+    { id: 'run', name: 'Run 2 Miles', pts: 30, tag: 'Cardio', c: { bg: '#FF9A3C', water: '#FF9A3C', fig: '#3A1500', pop: '#FFFFFF' } },
+    { id: 'water', name: 'Buy Water', pts: 10, tag: 'Errand', c: { bg: '#CDE8F7', water: '#CDE8F7', fig: '#1E6FA8', pop: '#1E6FA8' } },
+    { id: 'burpees', name: '10 Burpees', pts: 5, tag: 'Cardio', c: { bg: '#2F6DB5', water: '#2F6DB5', fig: '#FFFFFF', pop: '#FFD166' } },
+    { id: 'walk', name: 'Walk 2 Miles', pts: 15, tag: 'Cardio', c: { bg: '#C9D6F2', water: '#C9D6F2', fig: '#1B2A5A', pop: '#F26A4B' } },
+    { id: 'pushups20', name: '20 Push ups', pts: 10, tag: 'Strength', c: { bg: '#1F3A4D', water: '#1F3A4D', fig: '#FFFFFF', pop: '#FFD166' } },
+    { id: 'fun', name: 'Go Out Have Fun', pts: 20, tag: 'Social', c: { bg: '#FF4F8B', water: '#FF4F8B', fig: '#FFFFFF', pop: '#FFE066' } }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var grid = $('grid'), menu = $('menu'), go = $('go');
+  var totalEl = $('total'), captionEl = $('caption'), fillEl = $('fill'), meterEl = $('meter');
+  var earnedEl = $('earned'), leftEl = $('left');
+  var addBtn = $('addBtn'), addPanel = $('addPanel');
+  var newName = $('newName'), newPts = $('newPts'), addErr = $('addErr'), statusEl = $('status');
+
+  var MAX_ITEMS = 60;
+  var activities = clone(DEFAULTS);
+  var pending = 0, firstSnap = true, touched = false;
+  var current = { picks: [], total: 0 };
+  var done = {};
+  var lastKey = '';
+  var busy = false;
+
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function inDraw(id) { return current.picks.some(function (p) { return p.id === id; }); }
+
+  function cardHTML(a, i) {
+    var art = ART[a.id] ? ART[a.id]() : ART.custom();
+    return '<article class="card" data-id="' + esc(a.id) + '" style="--i:' + i + ';--p-bg:' + a.c.bg + ';--p-water:' + a.c.water + ';--p-fig:' + a.c.fig + ';--p-pop:' + a.c.pop + '">' +
+      '<div class="art">' + art + '<span class="pts">+' + a.pts + '</span><span class="tick" aria-hidden="true">' + CHECK + '</span></div>' +
+      '<div class="info"><div class="titles"><p class="tag">' + esc(a.tag) + '</p><h3>' + esc(a.name) + '</h3></div>' +
+      '<button type="button" class="done-btn" aria-pressed="false">Mark done</button></div></article>';
+  }
+
+  function renderMenu() {
+    menu.innerHTML = activities.map(function (a) {
+      return '<li data-id="' + esc(a.id) + '"' + (inDraw(a.id) ? ' class="on"' : '') + '><span class="dot"></span><span class="nm">' + esc(a.name) + '</span><span class="cat">' + esc(a.tag) + '</span><span class="pp">' + a.pts + '</span></li>';
+    }).join('');
+  }
+
+  function markMenu() {
+    Array.prototype.forEach.call(menu.children, function (li) {
+      li.classList.toggle('on', inDraw(li.getAttribute('data-id')));
+    });
+  }
+
+  function countTo(el, to, ms) {
+    var from = parseInt(el.textContent, 10) || 0;
+    if (reduce || from === to) { el.textContent = to; return; }
+    var t0 = performance.now();
+    (function step(t) {
+      var p = Math.min(1, (t - t0) / ms);
+      el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    })(t0);
+  }
+
+  function earnedPts() {
+    return current.picks.reduce(function (s, a) { return s + (done[a.id] ? a.pts : 0); }, 0);
+  }
+
+  function updateMeter() {
+    var earned = earnedPts();
+    var total = current.total || 1;
+    fillEl.style.width = Math.round(earned / total * 100) + '%';
+    meterEl.setAttribute('aria-valuemax', current.total);
+    meterEl.setAttribute('aria-valuenow', earned);
+    earnedEl.textContent = earned + ' pts earned';
+    var left = current.total - earned;
+    leftEl.textContent = left > 0 ? left + ' to go' : 'All done';
+  }
+
+  function setCaption() {
+    var n = current.picks.length;
+    if (earnedPts() === current.total) captionEl.textContent = 'All done. ' + current.total + ' points earned.';
+    else captionEl.textContent = n + (n === 1 ? ' activity' : ' activities') + ' to reach the ' + GOAL + ' point goal';
+  }
+
+  function apply(result, animate) {
+    current = { picks: result.picks.map(clone), total: result.total };
+    done = {};
+    lastKey = current.picks.map(function (p) { return p.id; }).sort().join();
+    grid.innerHTML = current.picks.map(cardHTML).join('');
+    if (animate && !reduce) {
+      grid.classList.add('dealing');
+      setTimeout(function () { grid.classList.remove('dealing'); }, 500 + current.picks.length * 80);
+    }
+    countTo(totalEl, current.total, 600);
+    setCaption();
+    markMenu();
+    updateMeter();
+  }
+
+  function pick() {
+    var r;
+    for (var t = 0; t < 6; t++) {
+      r = drawScramble(activities, GOAL, Math.random);
+      if (r.picks.map(function (p) { return p.id; }).sort().join() !== lastKey) break;
+    }
+    return r;
+  }
+
+  go.addEventListener('click', function () {
+    if (busy) return;
+    busy = true;
+    go.classList.add('spin');
+    grid.classList.add('leaving');
+    setTimeout(function () {
+      apply(pick(), true);
+      grid.classList.remove('leaving');
+      busy = false;
+    }, reduce ? 0 : 220);
+    setTimeout(function () { go.classList.remove('spin'); }, 520);
+  });
+
+  grid.addEventListener('click', function (e) {
+    var btn = e.target.closest('.done-btn');
+    if (!btn) return;
+    var card = btn.closest('.card');
+    var id = card.getAttribute('data-id');
+    done[id] = !done[id];
+    card.classList.toggle('is-done', !!done[id]);
+    btn.setAttribute('aria-pressed', done[id] ? 'true' : 'false');
+    btn.textContent = done[id] ? 'Done' : 'Mark done';
+    updateMeter();
+    setCaption();
+  });
+
+  addBtn.addEventListener('click', function () {
+    var open = addPanel.hidden;
+    addPanel.hidden = !open;
+    addBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    addBtn.textContent = open ? 'Close' : '+ Add activity';
+    addErr.textContent = '';
+    if (open) newName.focus();
+  });
+
+  addPanel.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = newName.value.trim();
+    var pts = Number(newPts.value);
+    if (!name) { addErr.textContent = 'Enter a name for the activity.'; newName.focus(); return; }
+    if (!(pts >= 1 && pts <= 500 && Math.floor(pts) === pts)) { addErr.textContent = 'Points must be a whole number from 1 to 500.'; newPts.focus(); return; }
+    if (activities.length >= MAX_ITEMS) { addErr.textContent = 'The list is full.'; return; }
+    var item = newItem(name, pts, activities.length, makeId());
+    activities.push(item);
+    addErr.textContent = '';
+    renderMenu();
+    touched = true;
+    var msg = 'Added ' + item.name + ' for ' + item.pts + ' pts.';
+    saveCustom(msg);
+    newName.value = '';
+    newName.focus();
+  });
+
+  /* saving: only the added activities are stored; the built-in list stays in the page */
+  var store = null;
+  function customList() {
+    return activities.slice(DEFAULTS.length).map(function (a) { return { id: a.id, name: a.name, pts: a.pts }; });
+  }
+  function saveCustom(msg) {
+    if (!store) { statusEl.textContent = msg + ' Not saved yet. Storage is still starting.'; return; }
+    pending++;
+    store.save(customList()).then(function (r) {
+      pending--;
+      statusEl.textContent = msg + (r.cloud ? ' Saved to your account.' : ' Saved on this device.');
+    }, function () {
+      pending--;
+      statusEl.textContent = msg + ' Not saved: this browser is blocking storage.';
+    });
+  }
+  function onItems(items) {
+    if (pending) return;
+    items = Array.isArray(items) ? items : [];
+    var list = clone(DEFAULTS), seen = {};
+    list.forEach(function (a) { seen[a.id] = true; });
+    items.forEach(function (it) {
+      if (list.length >= MAX_ITEMS) return;
+      if (!it || typeof it.id !== 'string' || typeof it.name !== 'string' || !it.name.trim() || seen[it.id]) return;
+      seen[it.id] = true;
+      list.push(newItem(it.name, it.pts, list.length, it.id));
+    });
+    activities = list;
+    renderMenu();
+    if (firstSnap) {
+      firstSnap = false;
+      if (!touched && list.length > DEFAULTS.length) apply(pick(), false);
+    }
+  }
+  function connect() {
+    if (!window.PointScrambleStore) return;
+    window.PointScrambleStore.create({ onItems: onItems }).then(function (s) { store = s; }, function () {});
+  }
+
+  renderMenu();
+  apply(pick(), false);
+  connect();
+})();
+</script>
+
+</body></html>
